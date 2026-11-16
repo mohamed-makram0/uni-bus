@@ -1,0 +1,436 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasValidUserDoc() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserCompanyId() {
+      return (hasValidUserDoc() && ('companyId' in getUserData()) && getUserData().companyId is string && getUserData().companyId.size() > 0)
+        ? getUserData().companyId
+        : 'comp-unibus-main';
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'khaled5ber5@gmail.com' ||
+        (hasValidUserDoc() && getUserData().role == 'super_admin' && getUserData().status == 'active')
+      );
+    }
+
+    function isCompanyActive(compId) {
+      return isSuperAdmin() ||
+        !exists(/databases/$(database)/documents/companies/$(compId)) ||
+        get(/databases/$(database)/documents/companies/$(compId)).data.status == 'active';
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || (
+        hasValidUserDoc() &&
+        getUserData().status == 'active' &&
+        (
+          getUserData().role == 'admin' ||
+          (getUserData().role == 'supervisor' && getUserData().isGeneralSupervisor == true)
+        )
+      );
+    }
+
+    function isSupervisor() {
+      return isSuperAdmin() || (
+        hasValidUserDoc() &&
+        (getUserData().role == 'supervisor' || getUserData().role == 'admin') &&
+        getUserData().status == 'active'
+      );
+    }
+
+    function isDriver() {
+      return isSuperAdmin() || (
+        hasValidUserDoc() &&
+        getUserData().role == 'driver' &&
+        getUserData().status == 'active'
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function belongsToUserCompany(docData) {
+      return isSuperAdmin() ||
+        docData.companyId == getUserCompanyId() ||
+        (getUserCompanyId() == 'comp-unibus-main' && !('companyId' in docData));
+    }
+
+    function matchesCompany(docData) {
+      return belongsToUserCompany(docData);
+    }
+
+    function isValidPhoneDigits(val) {
+      return val is string && val.matches('^[0-9]{8,15}$');
+    }
+
+    function isValidPhoneUserId(uid) {
+      return uid is string && uid.matches('^phone_[0-9]{8,15}$');
+    }
+
+    function hasValidCompanyId(data) {
+      return ('companyId' in data) && data.companyId is string && data.companyId.size() > 0 && data.companyId.size() <= 80;
+    }
+
+    function hasPendingInvite() {
+      return isSignedIn() &&
+        request.auth.token.email != null &&
+        exists(/databases/$(database)/documents/staffInvites/$(request.auth.token.email.lower())) &&
+        get(/databases/$(database)/documents/staffInvites/$(request.auth.token.email.lower())).data.status == 'pending';
+    }
+
+    function getPendingInvite() {
+      return get(/databases/$(database)/documents/staffInvites/$(request.auth.token.email.lower())).data;
+    }
+
+    // 0. Companies & Subscriptions (Platform Super Admin Management + Server-side Enforcement)
+    match /companies/{companyId} {
+      allow read: if isSignedIn() && (isSuperAdmin() || companyId == getUserCompanyId());
+      allow write: if isSuperAdmin();
+    }
+
+    // 0b. Public Non-PII Company Directory for Student Registration (name, code, status only)
+    match /companyDirectory/{companyId} {
+      allow read: if true;
+      allow write: if isSuperAdmin() || (isAdmin() && companyId == getUserCompanyId());
+    }
+
+    // 0c. Phone Directory (Single-doc get by phone digits for 1-time Phone+Name login; no open collection listing)
+    match /phoneDirectory/{phoneDigits} {
+      allow get: if isValidPhoneDigits(phoneDigits);
+      allow list: if isSuperAdmin() || (isSupervisor() && belongsToUserCompany(resource.data));
+      allow create: if isSuperAdmin() || (
+        isAdmin() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(request.resource.data)
+      ) || (
+        isSupervisor() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(request.resource.data)
+      ) || (
+        isValidPhoneDigits(phoneDigits) &&
+        request.resource.data.userId == ('phone_' + phoneDigits) &&
+        request.resource.data.phone == phoneDigits &&
+        request.resource.data.role in ['student', 'driver', 'supervisor'] &&
+        request.resource.data.status == 'pending_approval' &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.name.size() <= 100 &&
+        hasValidCompanyId(request.resource.data)
+      );
+      allow update, delete: if isSuperAdmin() || (
+        isAdmin() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(resource.data)
+      ) || (
+        isSupervisor() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(resource.data)
+      );
+    }
+
+    // 0d. Staff Invites (Optional email pre-provisioning for Admins, Supervisors & Drivers using Google Sign-In)
+    match /staffInvites/{inviteId} {
+      allow read: if isSuperAdmin() ||
+        (isAdmin() && belongsToUserCompany(resource.data)) ||
+        (isSignedIn() && request.auth.token.email != null && request.auth.token.email.lower() == inviteId);
+      allow create: if isSuperAdmin() || (
+        isAdmin() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(request.resource.data) &&
+        request.resource.data.role != 'super_admin'
+      ) || (
+        isSupervisor() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(request.resource.data) &&
+        request.resource.data.role == 'driver'
+      );
+      allow update: if isSuperAdmin() || (
+        isAdmin() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(resource.data) &&
+        belongsToUserCompany(request.resource.data) &&
+        request.resource.data.role != 'super_admin'
+      ) || (
+        isSupervisor() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(resource.data) &&
+        belongsToUserCompany(request.resource.data) &&
+        request.resource.data.role == 'driver'
+      ) || (
+        isSignedIn() &&
+        request.auth.token.email != null &&
+        request.auth.token.email.lower() == inviteId &&
+        resource.data.status == 'pending' &&
+        request.resource.data.status == 'claimed' &&
+        request.resource.data.claimedByUid == request.auth.uid
+      );
+      allow delete: if isSuperAdmin() || (
+        isAdmin() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(resource.data)
+      );
+    }
+
+    // 1. Universities (Non-PII public catalog needed for registration dropdown)
+    match /universities/{universityId} {
+      allow read: if true;
+      allow write: if isAdmin() && isCompanyActive(getUserCompanyId()) && matchesCompany(request.resource.data);
+    }
+
+    // 2. Buses
+    match /buses/{busId} {
+      allow read: if (isSignedIn() && belongsToUserCompany(resource.data)) || hasValidCompanyId(resource.data);
+      allow write: if isAdmin() && isCompanyActive(getUserCompanyId()) && matchesCompany(request.resource.data);
+    }
+
+    // 3. Routes & Subcollection Stops (Non-PII public catalog needed for registration dropdown)
+    match /routes/{routeId} {
+      allow read: if true;
+      allow write: if isAdmin() && isCompanyActive(getUserCompanyId()) && matchesCompany(request.resource.data);
+
+      match /stops/{stopId} {
+        allow read: if true;
+        allow write: if isAdmin() && isCompanyActive(getUserCompanyId());
+      }
+    }
+
+    // 4. Trip Templates (Default Schedules)
+    match /tripTemplates/{templateId} {
+      allow read: if (isSignedIn() && belongsToUserCompany(resource.data)) || hasValidCompanyId(resource.data);
+      allow write: if isAdmin() && isCompanyActive(getUserCompanyId()) && matchesCompany(request.resource.data);
+    }
+
+    // 5. Users & Roles (PII and RBAC Protection + Pending Approval Enforcement + Anti-Escalation)
+    match /users/{userId} {
+      allow get: if isSuperAdmin() ||
+        isOwner(userId) ||
+        (isSupervisor() && belongsToUserCompany(resource.data)) ||
+        isValidPhoneUserId(userId) ||
+        (resource.data.phone is string && resource.data.phone.size() >= 8);
+
+      allow list: if isSuperAdmin() || (isSupervisor() && belongsToUserCompany(resource.data));
+      
+      allow create: if (
+        isSignedIn() && (
+          isSuperAdmin() ||
+          (
+            isAdmin() &&
+            isCompanyActive(getUserCompanyId()) &&
+            belongsToUserCompany(request.resource.data) &&
+            request.resource.data.role != 'super_admin'
+          ) ||
+          (
+            isSupervisor() &&
+            isCompanyActive(getUserCompanyId()) &&
+            belongsToUserCompany(request.resource.data) &&
+            request.resource.data.role == 'driver'
+          ) ||
+          (
+            isOwner(userId) && (
+              (request.resource.data.role == 'student' && request.resource.data.status == 'pending_approval') ||
+              (
+                hasPendingInvite() &&
+                request.resource.data.role == getPendingInvite().role &&
+                request.resource.data.role != 'super_admin' &&
+                request.resource.data.companyId == getPendingInvite().companyId &&
+                request.resource.data.status == 'active'
+              ) ||
+              (request.auth.token.email == 'khaled5ber5@gmail.com' && (request.resource.data.role == 'super_admin' || request.resource.data.role == 'admin'))
+            )
+          )
+        )
+      ) || (
+        // Self-registration via Phone + Name ONLY: locked to student/driver/supervisor + pending_approval until approved
+        isValidPhoneUserId(userId) &&
+        request.resource.data.id == userId &&
+        request.resource.data.role in ['student', 'driver', 'supervisor'] &&
+        request.resource.data.status == 'pending_approval' &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.name.size() <= 100 &&
+        isValidPhoneDigits(request.resource.data.phone) &&
+        hasValidCompanyId(request.resource.data) &&
+        isCompanyActive(request.resource.data.companyId)
+      );
+
+      allow update: if isSignedIn() && (
+        isSuperAdmin() ||
+        (
+          isAdmin() &&
+          isCompanyActive(getUserCompanyId()) &&
+          belongsToUserCompany(resource.data) &&
+          belongsToUserCompany(request.resource.data) &&
+          resource.data.role != 'super_admin' &&
+          request.resource.data.role != 'super_admin'
+        ) ||
+        (
+          // Operational Supervisor can approve/activate or suspend pending student/driver registrations in their company
+          isSupervisor() &&
+          isCompanyActive(getUserCompanyId()) &&
+          belongsToUserCompany(resource.data) &&
+          belongsToUserCompany(request.resource.data) &&
+          resource.data.role in ['student', 'driver'] &&
+          resource.data.status == 'pending_approval' &&
+          request.resource.data.role in ['student', 'driver'] &&
+          request.resource.data.status in ['active', 'suspended']
+        ) ||
+        (
+          isOwner(userId) &&
+          hasPendingInvite() &&
+          resource.data.role != 'super_admin' &&
+          request.resource.data.role == getPendingInvite().role &&
+          request.resource.data.role != 'super_admin' &&
+          request.resource.data.companyId == getPendingInvite().companyId &&
+          request.resource.data.status == 'active'
+        ) ||
+        (
+          isOwner(userId) &&
+          isCompanyActive(getUserCompanyId()) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status', 'companyId'])
+        )
+      );
+
+      allow delete: if isSuperAdmin() || (
+        isAdmin() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(resource.data) &&
+        resource.data.role != 'super_admin'
+      ) || (
+        isSupervisor() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(resource.data) &&
+        resource.data.role in ['student', 'driver'] &&
+        resource.data.status == 'pending_approval'
+      ) || (
+        hasPendingInvite() &&
+        getPendingInvite().preProvisionedUserId == userId
+      );
+    }
+
+    // 6. Trips (Live Operations & Atomic Manifest updates)
+    match /trips/{tripId} {
+      allow read: if (isSignedIn() && belongsToUserCompany(resource.data)) || hasValidCompanyId(resource.data);
+      allow create: if isSupervisor() && isCompanyActive(getUserCompanyId()) && belongsToUserCompany(request.resource.data);
+      allow update: if isSuperAdmin() || (
+        isSignedIn() &&
+        isCompanyActive(getUserCompanyId()) &&
+        belongsToUserCompany(resource.data) && (
+          isSupervisor() ||
+          (isDriver() && (
+            resource.data.driverId == request.auth.uid ||
+            (exists(/databases/$(database)/documents/drivers/$(resource.data.driverId)) &&
+             get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.userId == request.auth.uid)
+          )) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['manifest'])
+        )
+      ) || (
+        hasValidCompanyId(resource.data) &&
+        request.resource.data.companyId == resource.data.companyId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'manifest',
+          'stops',
+          'currentStopIndex',
+          'status',
+          'lastConfirmedStopName',
+          'lastConfirmedTime',
+          'delayMinutes',
+          'delayReason'
+        ])
+      );
+      allow delete: if isSuperAdmin() || (isAdmin() && isCompanyActive(getUserCompanyId()) && belongsToUserCompany(resource.data));
+    }
+
+    // 7. Subscriptions
+    match /subscriptions/{subscriptionId} {
+      allow read: if isSuperAdmin() ||
+        (isSupervisor() && belongsToUserCompany(resource.data)) ||
+        (isSignedIn() && isOwner(resource.data.studentId)) ||
+        isValidPhoneUserId(resource.data.studentId);
+      allow write: if isSuperAdmin() || (isSupervisor() && isCompanyActive(getUserCompanyId()) && belongsToUserCompany(request.resource.data));
+    }
+
+    // 8. Incidents & Delays
+    match /incidents/{incidentId} {
+      allow read: if (isSignedIn() && belongsToUserCompany(resource.data)) || hasValidCompanyId(resource.data);
+      allow create: if ((isDriver() || isSupervisor()) && isCompanyActive(getUserCompanyId()) && belongsToUserCompany(request.resource.data)) ||
+        (hasValidCompanyId(request.resource.data) && request.resource.data.driverId is string && request.resource.data.description is string);
+      allow update, delete: if isSuperAdmin() || (isSupervisor() && isCompanyActive(getUserCompanyId()) && belongsToUserCompany(resource.data));
+    }
+
+    // 9. Consolidation Proposals
+    match /proposals/{proposalId} {
+      allow read: if isSuperAdmin() || (isSupervisor() && belongsToUserCompany(resource.data));
+      allow write: if isSuperAdmin() || (isSupervisor() && isCompanyActive(getUserCompanyId()) && belongsToUserCompany(request.resource.data));
+    }
+
+    // 10. Exceptional Requests
+    match /exceptionalRequests/{requestId} {
+      allow read: if isSuperAdmin() ||
+        (isSupervisor() && belongsToUserCompany(resource.data)) ||
+        (isSignedIn() && isOwner(resource.data.studentId)) ||
+        isValidPhoneUserId(resource.data.studentId);
+      allow create: if (isSignedIn() && isCompanyActive(getUserCompanyId()) && belongsToUserCompany(request.resource.data)) ||
+        (isValidPhoneUserId(request.resource.data.studentId) && hasValidCompanyId(request.resource.data));
+      allow update, delete: if isSuperAdmin() || (isSupervisor() && isCompanyActive(getUserCompanyId()) && belongsToUserCompany(resource.data));
+    }
+
+    // 11. System Settings (Global & Per-Company settings/company_{companyId})
+    match /settings/{settingId} {
+      allow get: if true;
+      allow list: if isSignedIn();
+      allow write: if isSuperAdmin() || (
+        isAdmin() &&
+        isCompanyActive(getUserCompanyId()) &&
+        (settingId == ('company_' + getUserCompanyId()) || (settingId == 'system' && getUserCompanyId() == 'comp-unibus-main'))
+      );
+    }
+
+    // 12. Drivers Directory
+    match /drivers/{driverId} {
+      allow read: if (isSignedIn() && belongsToUserCompany(resource.data)) || hasValidCompanyId(resource.data);
+      allow create, delete: if isSuperAdmin() || (
+        isAdmin() && isCompanyActive(getUserCompanyId()) && matchesCompany(request.resource.data)
+      ) || (
+        isSupervisor() && isCompanyActive(getUserCompanyId()) && matchesCompany(request.resource.data)
+      );
+      allow update: if isSuperAdmin() ||
+        ((isAdmin() || isSupervisor()) && isCompanyActive(getUserCompanyId()) && matchesCompany(request.resource.data)) ||
+        (
+          hasPendingInvite() &&
+          getPendingInvite().preProvisionedDriverId == driverId &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userId'])
+        );
+    }
+
+    // 13. Central Audit Logs (Immutable by regular users, Rollback metadata writable only by Super Admin)
+    match /auditLogs/{logId} {
+      allow read: if isSuperAdmin() || (isSupervisor() && belongsToUserCompany(resource.data));
+      allow create: if (isSignedIn() && (isSuperAdmin() || belongsToUserCompany(request.resource.data))) ||
+        (hasValidCompanyId(request.resource.data) && request.resource.data.actorId is string && request.resource.data.action is string);
+      allow update: if isSuperAdmin();
+      allow delete: if false;
+    }
+  }
+}

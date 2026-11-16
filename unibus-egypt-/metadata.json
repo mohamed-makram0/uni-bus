@@ -1,0 +1,6 @@
+{
+  "name": "UniBus Egypt | منظومة إدارة نقل طلاب الجامعات",
+  "description": "نظام تشغيلي متكامل لإدارة أسطول نقل طلاب الجامعات في مصر، يشمل إدارة الخطوط والمحطات، الحضور الفعلي، وتوزيع الحافلات وفق الصلاحيات.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

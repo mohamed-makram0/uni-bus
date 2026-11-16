@@ -1,0 +1,265 @@
+{
+  "entities": {
+    "Company": {
+      "title": "Company",
+      "description": "الشركات المشتركة في المنصة وحالة الاشتراك والتفعيل",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nameAr": { "type": "string", "maxLength": 150 },
+        "code": { "type": "string", "maxLength": 40 },
+        "ownerAdminUserId": { "type": "string" },
+        "ownerAdminName": { "type": "string", "maxLength": 100 },
+        "ownerAdminEmail": { "type": "string", "format": "email" },
+        "contactPhone": { "type": "string", "maxLength": 30 },
+        "planName": { "type": "string", "enum": ["starter", "growth", "enterprise"] },
+        "monthlyPriceEgp": { "type": "number" },
+        "durationMonths": { "type": "number" },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "paymentStatus": { "type": "string", "enum": ["paid", "pending", "overdue"] },
+        "status": { "type": "string", "enum": ["active", "suspended"] }
+      },
+      "required": ["id", "nameAr", "code", "planName", "monthlyPriceEgp", "paymentStatus", "status"]
+    },
+    "University": {
+      "title": "University",
+      "description": "بيانات الجامعة والحرم الجامعي",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "nameAr": { "type": "string", "maxLength": 100 },
+        "city": { "type": "string", "maxLength": 100 },
+        "campusLocation": { "type": "string", "maxLength": 200 },
+        "activeStatus": { "type": "boolean" },
+        "totalStudents": { "type": "number" }
+      },
+      "required": ["id", "nameAr", "city", "activeStatus"]
+    },
+    "Bus": {
+      "title": "Bus",
+      "description": "حافلات أسطول النقل وسعاتها",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "code": { "type": "string", "maxLength": 20 },
+        "plateNumber": { "type": "string", "maxLength": 30 },
+        "capacity": { "type": "number" },
+        "model": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["available", "in_trip", "maintenance"] },
+        "activeStatus": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["id", "code", "plateNumber", "capacity", "status", "activeStatus"]
+    },
+    "Route": {
+      "title": "Route",
+      "description": "خطوط سير الحافلات والجامعات المرتبطة بها",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "universityId": { "type": "string" },
+        "nameAr": { "type": "string", "maxLength": 150 },
+        "code": { "type": "string", "maxLength": 30 },
+        "direction": { "type": "string", "enum": ["to_university", "from_university", "both"] },
+        "activeStatus": { "type": "boolean" }
+      },
+      "required": ["id", "universityId", "nameAr", "code", "direction", "activeStatus"]
+    },
+    "Stop": {
+      "title": "Stop",
+      "description": "المحطات المرتبة لكل خط سير",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lineId": { "type": "string" },
+        "nameAr": { "type": "string", "maxLength": 100 },
+        "orderIndex": { "type": "number" },
+        "scheduledMinutesFromStart": { "type": "number" }
+      },
+      "required": ["id", "lineId", "nameAr", "orderIndex"]
+    },
+    "TripTemplate": {
+      "title": "TripTemplate",
+      "description": "قوالب مواعيد الرحلات الافتراضية للذهاب والعودة",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "time": { "type": "string", "maxLength": 20 },
+        "direction": { "type": "string", "enum": ["to_university", "from_university"] },
+        "type": { "type": "string", "enum": ["morning", "return"] },
+        "universityId": { "type": "string" },
+        "lineId": { "type": "string" },
+        "activeStatus": { "type": "boolean" },
+        "isDefault": { "type": "boolean" }
+      },
+      "required": ["id", "time", "direction", "type", "activeStatus"]
+    },
+    "User": {
+      "title": "User",
+      "description": "ملف المستخدم وصلاحياته",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["super_admin", "admin", "supervisor", "driver", "student"] },
+        "isGeneralSupervisor": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["active", "pending_approval", "suspended"] },
+        "universityId": { "type": "string" },
+        "lineId": { "type": "string" },
+        "stationId": { "type": "string" }
+      },
+      "required": ["id", "name", "phone", "role", "status"]
+    },
+    "Trip": {
+      "title": "Trip",
+      "description": "رحلات التشغيل اليومية والركاب والمحطات",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "code": { "type": "string", "maxLength": 30 },
+        "date": { "type": "string", "maxLength": 20 },
+        "universityId": { "type": "string" },
+        "universityNameAr": { "type": "string", "maxLength": 100 },
+        "lineId": { "type": "string" },
+        "lineNameAr": { "type": "string", "maxLength": 150 },
+        "direction": { "type": "string", "enum": ["to_university", "from_university"] },
+        "scheduledTime": { "type": "string", "maxLength": 20 },
+        "busId": { "type": "string" },
+        "busPlate": { "type": "string", "maxLength": 30 },
+        "capacity": { "type": "number" },
+        "driverId": { "type": "string" },
+        "driverNameAr": { "type": "string", "maxLength": 100 },
+        "driverPhone": { "type": "string", "maxLength": 20 },
+        "isUnregisteredEmergencyDriver": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["scheduled", "in_progress", "completed", "delayed", "merged", "cancelled"] },
+        "currentStopIndex": { "type": "number" },
+        "delayMinutes": { "type": "number" }
+      },
+      "required": ["id", "code", "date", "universityId", "lineId", "direction", "scheduledTime", "status"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "سجل التدقيق المركزي وسجل التدخلات والتراجع الآمن",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "createdAtMs": { "type": "number" },
+        "companyId": { "type": "string" },
+        "actorId": { "type": "string" },
+        "actorName": { "type": "string" },
+        "actorRole": { "type": "string", "enum": ["super_admin", "admin", "supervisor", "driver", "student"] },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "targetEntity": { "type": "string" },
+        "interventionReason": { "type": "string" },
+        "reversible": { "type": "boolean" }
+      },
+      "required": ["id", "timestamp", "actorName", "actorRole", "action", "targetEntity"]
+    },
+    "CompanyDirectory": {
+      "title": "CompanyDirectory",
+      "description": "دليل عام مختصر بأسماء وأكواد الشركات لاختيار الشركة عند تسجيل الطلاب بدون بيانات مالية",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nameAr": { "type": "string", "maxLength": 150 },
+        "code": { "type": "string", "maxLength": 40 },
+        "status": { "type": "string", "enum": ["active", "suspended"] }
+      },
+      "required": ["id", "nameAr", "code", "status"]
+    },
+    "StaffInvite": {
+      "title": "StaffInvite",
+      "description": "دعوات تفعيل وربط الموظفين (المديرين والمشرفين والسائقين) عند أول تسجيل دخول",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "emailLower": { "type": "string" },
+        "companyId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "role": { "type": "string", "enum": ["admin", "supervisor", "driver", "student"] },
+        "isGeneralSupervisor": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["pending", "claimed"] }
+      },
+      "required": ["id", "email", "emailLower", "companyId", "role", "status"]
+    },
+    "PhoneDirectory": {
+      "title": "PhoneDirectory",
+      "description": "فهرس الدخول السريع برقم الهاتف والاسم لتسجيل الدخول لمرة واحدة بدون بريد إلكتروني",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "companyId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "role": { "type": "string", "enum": ["super_admin", "admin", "supervisor", "driver", "student"] },
+        "status": { "type": "string", "enum": ["active", "pending_approval", "suspended"] },
+        "isGeneralSupervisor": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "companyId", "name", "phone", "role", "status"]
+    }
+  },
+  "firestore": {
+    "/companies/{companyId}": {
+      "schema": "Company",
+      "description": "الشركات المشتركة والاشتراكات"
+    },
+    "/companyDirectory/{companyId}": {
+      "schema": "CompanyDirectory",
+      "description": "الدليل العام المختصر للشركات عند تسجيل الطلاب"
+    },
+    "/phoneDirectory/{phoneDigits}": {
+      "schema": "PhoneDirectory",
+      "description": "فهرس ربط رقم الهاتف بالاسم وحالة اعتماد الحساب"
+    },
+    "/staffInvites/{inviteId}": {
+      "schema": "StaffInvite",
+      "description": "دعوات تفعيل حسابات المديرين والمشرفين والسائقين بالبريد الإلكتروني"
+    },
+    "/universities/{universityId}": {
+      "schema": "University",
+      "description": "مجموعة الجامعات المخدومة في النظام"
+    },
+    "/buses/{busId}": {
+      "schema": "Bus",
+      "description": "أسطول الحافلات والسعات الرسمية"
+    },
+    "/routes/{routeId}": {
+      "schema": "Route",
+      "description": "خطوط السير المعتمدة"
+    },
+    "/routes/{routeId}/stops/{stopId}": {
+      "schema": "Stop",
+      "description": "محطات خط السير بالترتيب"
+    },
+    "/tripTemplates/{templateId}": {
+      "schema": "TripTemplate",
+      "description": "مواعيد وجداول الرحلات الافتراضية"
+    },
+    "/trips/{tripId}": {
+      "schema": "Trip",
+      "description": "رحلات التشغيل اليومية المجدولة والمنفذة"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "حسابات المستخدمين والأدوار"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "سجل العمليات والتدخلات الإدارية غير القابل للحذف"
+    }
+  }
+}
